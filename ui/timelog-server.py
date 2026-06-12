@@ -104,13 +104,37 @@ def account_id():
     return _account_id
 
 
-def tempo_logged_minutes(date):
-    """Minutes already in Tempo for the date. Cached until a submit clears it."""
+_issue_by_id = {}  # numeric jira issue id -> (key, summary)
+
+
+def issue_by_id(issue_id):
+    if issue_id not in _issue_by_id:
+        i = jira_get(f"/rest/api/3/issue/{issue_id}?fields=summary")
+        _issue_by_id[issue_id] = (i["key"], i.get("fields", {}).get("summary", ""))
+    return _issue_by_id[issue_id]
+
+
+def tempo_worklogs(date):
+    """Worklogs already in Tempo for the date: [{ticket, title, minutes, description}].
+    Cached until a submit clears it."""
     if date not in _tempo_cache:
         res = tempo_call(f"/worklogs/user/{account_id()}?from={date}&to={date}&limit=1000")
-        _tempo_cache[date] = round(sum(w.get("timeSpentSeconds", 0)
-                                       for w in res.get("results", [])) / 60)
+        logs = []
+        for w in res.get("results", []):
+            minutes = round(w.get("timeSpentSeconds", 0) / 60)
+            ticket, title = "", ""
+            try:
+                ticket, title = issue_by_id((w.get("issue") or {}).get("id"))
+            except Exception:
+                pass
+            logs.append({"ticket": ticket, "title": title, "minutes": minutes,
+                         "description": w.get("description", "")})
+        _tempo_cache[date] = logs
     return _tempo_cache[date]
+
+
+def tempo_logged_minutes(date):
+    return sum(w["minutes"] for w in tempo_worklogs(date))
 
 
 def fetch_missing_titles(keys):
@@ -223,11 +247,13 @@ def day_payload(date):
         if key in ov_locks:
             locks[i] = int(ov_locks[key])
     already = 0
-    if fill and tempo_ready():
+    logged = []
+    if tempo_ready():
         try:
-            already = tempo_logged_minutes(date)
+            logged = tempo_worklogs(date)
+            already = sum(w["minutes"] for w in logged) if fill else 0
         except Exception:
-            already = 0
+            logged = []
     # fill off -> available 0: locks honored, the rest stay at bucketed time
     cli.distribute(groups, target if fill else 0, already if fill else 0, locks)
     titles = cli.load_titles()
@@ -250,7 +276,7 @@ def day_payload(date):
         if not e.get("logged") and e.get("category", "work") == "meta"
     ]
     return {"date": date, "groups": groups, "meta": meta, "target": target,
-            "fill": fill, "locks": ov_locks, "already": already,
+            "fill": fill, "locks": ov_locks, "already": already, "logged": logged,
             "tempo_ready": tempo_ready(),
             "jira_base": load_config().get("jira_base", "")}
 

@@ -92,6 +92,13 @@
   .actions { display: flex; gap: 6px; justify-content: flex-end; }
   .actions button { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 15px; padding: 2px; border-radius: 5px; }
   .actions button:hover { color: var(--text); background: var(--bg); }
+  #logged-section { margin-bottom: 16px; }
+  #logged-section h3 { color: var(--dim); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .logged-row { display: flex; gap: 10px; align-items: baseline; font-size: 13px; padding: 2px 14px; color: var(--dim); }
+  .logged-row .l-check { color: var(--ok); flex-shrink: 0; }
+  .logged-row .l-mins { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); opacity: .8; flex-shrink: 0; }
+  .logged-row .l-ticket { color: var(--accent); font-weight: 600; flex-shrink: 0; }
+  .logged-row .l-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #suggestions-section { margin-top: 26px; }
   #suggestions-section h3 { color: var(--dim); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
   .suggestion-row { display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 3px 14px; color: var(--dim); }
@@ -206,6 +213,7 @@ function render() {
       ${d.fill ? "" : '<span> · auto-fill off</span>'}
     </div>
     <div id="submit-status"></div>
+    <div id="logged-section"></div>
     <div id="rows"></div>
     <div id="suggestions-section"></div>
     <div id="meta-section"></div>
@@ -256,6 +264,19 @@ function render() {
   main.querySelector("#del-day").onclick = () => {
     if (confirm(`Delete all entries for ${d.date}?`)) act({ action: "delete_day" });
   };
+
+  if (d.logged && d.logged.length) {
+    const sec = main.querySelector("#logged-section");
+    const tot = d.logged.reduce((s, w) => s + w.minutes, 0);
+    sec.innerHTML = `<h3>Already in Tempo — ${fmt(tot)}</h3>`;
+    for (const w of d.logged) {
+      const el = document.createElement("div");
+      el.className = "logged-row";
+      el.innerHTML = `<span class="l-check">✓</span><span class="l-mins">${fmt(w.minutes)}</span>
+        <span class="l-ticket">${w.ticket || "?"}</span><span class="l-title">${w.title || w.description}</span>`;
+      sec.appendChild(el);
+    }
+  }
 
   const rows = main.querySelector("#rows");
   for (const g of d.groups) rows.appendChild(renderRow(g));
