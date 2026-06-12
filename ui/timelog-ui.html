@@ -95,15 +95,12 @@
   .section-sep { border: none; border-top: 1px solid #313845; margin: 22px 0; }
   #logged-section { margin-bottom: 6px; }
   #logged-section h3 { color: var(--ok); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-  .logged-row { display: flex; gap: 10px; align-items: baseline; font-size: 13px; padding: 5px 14px; color: var(--dim); background: rgba(76, 175, 120, .07); border-left: 3px solid var(--ok); border-radius: 6px; margin-bottom: 3px; }
-  .logged-row .l-check { color: var(--ok); flex-shrink: 0; }
-  .logged-row .l-mins { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); opacity: .8; flex-shrink: 0; cursor: pointer; border-radius: 5px; padding: 0 4px; }
-  .logged-row .l-mins:hover { background: var(--row-hover); }
-  .logged-row .l-mins.pending { color: var(--warn); opacity: 1; }
-  .logged-row.deleted .l-ticket, .logged-row.deleted .l-title { text-decoration: line-through; opacity: .5; }
-  .logged-row .l-x, .logged-row .l-undo { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 12px; padding: 0 4px; border-radius: 4px; flex-shrink: 0; }
-  .logged-row .l-x:hover { color: var(--danger); }
-  .logged-row .l-undo:hover { color: var(--text); }
+  .row.logged .bar { background: linear-gradient(90deg, #2e7d52, var(--ok)); }
+  .row.logged .bar.pending { background: linear-gradient(90deg, #a87217, var(--warn)); }
+  .row.logged .ticket-key { color: var(--ok); font-weight: 600; flex-shrink: 0; }
+  .row.logged.deleted .ticket-key, .row.logged.deleted .title { text-decoration: line-through; opacity: .5; }
+  .row.logged .mins .old { display: block; color: var(--dim); font-size: 11px; text-decoration: line-through; }
+  .row.logged .actions button.undo { font-size: 12px; }
   .logged-row .l-ticket { color: var(--ok); font-weight: 600; flex-shrink: 0; }
   .logged-row .l-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #suggestions-section { margin-top: 6px; }
@@ -296,35 +293,7 @@ function render() {
     const tot = d.logged.reduce((s, w) => s + (w.pending_minutes ?? w.minutes), 0);
     const pendingCount = d.logged.filter(w => w.pending_minutes !== undefined).length;
     sec.innerHTML = `<h3>Already in Tempo — ${fmt(tot)}${pendingCount ? ` <span style="color:var(--warn)">(${pendingCount} pending change${pendingCount > 1 ? "s" : ""} — applied on Submit day)</span>` : ""}</h3>`;
-    for (const w of d.logged) {
-      const pending = w.pending_minutes !== undefined;
-      const deleted = pending && w.pending_minutes === 0;
-      const shown = pending ? w.pending_minutes : w.minutes;
-      const el = document.createElement("div");
-      el.className = "logged-row" + (deleted ? " deleted" : "");
-      el.innerHTML = `<span class="l-check">${pending ? "✎" : "✓"}</span>
-        <span class="l-mins ${pending ? "pending" : ""}" title="Click to change time">${deleted ? "0m" : fmt(shown)}${pending && !deleted ? ` <s style="opacity:.5">${fmt(w.minutes)}</s>` : ""}</span>
-        <span class="l-ticket">${w.ticket || "?"}</span><span class="l-title">${w.title || w.description}</span>`;
-      el.querySelector(".l-mins").onclick = () => {
-        const v = prompt(`New time for ${w.ticket} (e.g. 90, 1h 30m). 0 deletes the worklog.`, fmt(shown));
-        if (v === null) return;
-        const mins = parseTime(v);
-        if (mins === null) { alert("Couldn't parse that time."); return; }
-        act({ action: "set_logged_edit", worklog_id: w.id, minutes: mins });
-      };
-      if (pending) {
-        const undo = document.createElement("button");
-        undo.className = "l-undo"; undo.textContent = "↩ undo";
-        undo.onclick = () => act({ action: "clear_logged_edit", worklog_id: w.id });
-        el.appendChild(undo);
-      } else {
-        const x = document.createElement("button");
-        x.className = "l-x"; x.textContent = "✕"; x.title = "Stage deletion (applied on Submit day)";
-        x.onclick = () => act({ action: "set_logged_edit", worklog_id: w.id, minutes: 0 });
-        el.appendChild(x);
-      }
-      sec.appendChild(el);
-    }
+    for (const w of d.logged) sec.appendChild(renderLoggedRow(w));
   }
 
   const rows = main.querySelector("#rows");
@@ -344,6 +313,74 @@ function render() {
       metaSec.appendChild(el);
     }
   }
+}
+
+function renderLoggedRow(w) {
+  const pending = w.pending_minutes !== undefined;
+  const deleted = pending && w.pending_minutes === 0;
+  const shown = pending ? w.pending_minutes : w.minutes;
+  const pct = Math.min(100, shown / dayData.target * 100);
+  const jiraLink = w.ticket && dayData.jira_base
+    ? `<a href="${dayData.jira_base}/browse/${w.ticket}" target="_blank" title="Open in Jira">↗</a>` : "";
+  const row = document.createElement("div");
+  row.className = "row logged" + (deleted ? " deleted" : "");
+  row.innerHTML = `
+    <div class="row-head">
+      <span class="ticket-key">${pending ? "✎" : "✓"} ${w.ticket || "?"}</span>
+      <span class="title">${w.title || ""}</span>
+      ${jiraLink}
+    </div>
+    <div class="row-grid">
+      <div class="meta-info">${w.description || ""}</div>
+      <div class="bar-wrap">
+        <div class="bar ${pending ? "pending" : ""}" style="width:${pct}%"></div>
+        <div class="bar-label">${deleted ? "deleted" : fmt(shown)}</div>
+        <div class="handle" style="left:calc(${pct}% - 5px)"></div>
+      </div>
+      <div class="mins">${deleted ? "0m" : fmt(shown)}
+        ${pending && !deleted ? `<span class="old">was ${fmt(w.minutes)}</span>` : ""}</div>
+      <div class="actions"></div>
+    </div>`;
+
+  const actions = row.querySelector(".actions");
+  if (pending) {
+    const undo = document.createElement("button");
+    undo.className = "undo"; undo.textContent = "↩"; undo.title = "Undo staged change";
+    undo.onclick = () => act({ action: "clear_logged_edit", worklog_id: w.id });
+    actions.appendChild(undo);
+  } else {
+    const x = document.createElement("button");
+    x.textContent = "🗑"; x.title = "Stage deletion (applied on Submit day)";
+    x.onclick = () => act({ action: "set_logged_edit", worklog_id: w.id, minutes: 0 });
+    actions.appendChild(x);
+  }
+
+  // Drag stages a new duration, applied on Submit day
+  const wrap = row.querySelector(".bar-wrap");
+  const bar = row.querySelector(".bar");
+  const label = row.querySelector(".bar-label");
+  wrap.onmousedown = e => {
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    let minutes = shown;
+    const move = ev => {
+      const frac = Math.min(1.5, Math.max(0, (ev.clientX - rect.left) / rect.width));
+      minutes = Math.max(15, Math.round(frac * dayData.target / 15) * 15);
+      bar.style.width = Math.min(100, minutes / dayData.target * 100) + "%";
+      bar.classList.add("pending");
+      label.textContent = fmt(minutes);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      if (minutes !== w.minutes) act({ action: "set_logged_edit", worklog_id: w.id, minutes });
+      else act({ action: "clear_logged_edit", worklog_id: w.id });
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    move(e);
+  };
+  return row;
 }
 
 function renderRow(g) {
