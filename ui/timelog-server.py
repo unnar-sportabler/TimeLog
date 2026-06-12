@@ -376,17 +376,46 @@ def mutate(date, body):
 _activity_cache = {}  # date -> [{ticket, title}]
 
 
-def _day_event_count(key, date, me):
-    """Number of changelog entries the user made on the issue that day."""
+def _activity_stamps(key, date, me, created=None):
+    """Minute-of-day timestamps of the user's actions on the issue that day
+    (changelog entries + comments + issue creation)."""
+    stamps = []
+
+    def collect(ts):
+        if ts and ts[:10] == date:
+            stamps.append(int(ts[11:13]) * 60 + int(ts[14:16]))
+
     res = jira_get(f"/rest/api/3/issue/{key}/changelog?maxResults=100")
     histories = res.get("values", [])
     total = res.get("total", 0)
     if total > 100:  # day's events are at the tail for long-lived issues
         res = jira_get(f"/rest/api/3/issue/{key}/changelog?startAt={total - 100}&maxResults=100")
         histories = res.get("values", [])
-    return sum(1 for h in histories
-               if h.get("author", {}).get("accountId") == me
-               and h.get("created", "")[:10] == date)
+    for h in histories:
+        if h.get("author", {}).get("accountId") == me:
+            collect(h.get("created", ""))
+    com = jira_get(f"/rest/api/3/issue/{key}/comment?maxResults=100&orderBy=-created")
+    for c in com.get("comments", []):
+        if c.get("author", {}).get("accountId") == me:
+            collect(c.get("created", ""))
+    collect(created or "")
+    return sorted(stamps)
+
+
+def _burst_minutes(stamps, gap=30, cap=120):
+    """Cluster timestamps into activity bursts; each burst = its span rounded
+    up to 15m (min 15m). Mirrors how Tempo's activity cards behave."""
+    if not stamps:
+        return 0
+    total = 0
+    start = prev = stamps[0]
+    for m in stamps[1:]:
+        if m - prev > gap:
+            total += max(15, ((prev - start + 14) // 15) * 15)
+            start = m
+        prev = m
+    total += max(15, ((prev - start + 14) // 15) * 15)
+    return min(cap, total)
 
 
 def jira_activity(date):
@@ -401,17 +430,20 @@ def jira_activity(date):
     res = jira_get("/rest/api/3/search/jql?jql=" + urllib.parse.quote(jql)
                    + "&fields=summary,created,reporter&maxResults=50")
     me = account_id()
-    items = []
-    for i in res.get("issues", []):
-        f = i.get("fields", {})
+
+    def build(issue):
+        f = issue.get("fields", {})
+        created = f.get("created", "") if (f.get("reporter") or {}).get("accountId") == me else None
         try:
-            events = _day_event_count(i["key"], date, me)
+            minutes = _burst_minutes(_activity_stamps(issue["key"], date, me, created))
         except Exception:
-            events = 0
-        if (f.get("reporter") or {}).get("accountId") == me and f.get("created", "")[:10] == date:
-            events += 1  # creating the issue counts as an action
-        items.append({"ticket": i["key"], "title": f.get("summary", ""),
-                      "minutes": min(120, max(15, events * 15))})
+            minutes = 0
+        return {"ticket": issue["key"], "title": f.get("summary", ""),
+                "minutes": minutes or 15}
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        items = list(ex.map(build, res.get("issues", [])))
     # remember the summaries for the main table too
     titles = cli.load_titles()
     fresh = {i["ticket"]: i["title"] for i in items if i["title"] and i["ticket"] not in titles}
