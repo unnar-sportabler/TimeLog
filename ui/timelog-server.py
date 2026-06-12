@@ -508,8 +508,9 @@ def release_suggestions(date):
             if len(parts) < 3:
                 continue
             app, ver = parts[1], parts[2].removesuffix(".0")
-            seen[f"{app}-{ver}"] = {"ticket": "", "icon": "🚀",
-                                    "title": f"Released {app} {ver}", "minutes": 15}
+            seen[f"{app}-{ver}"] = {"ticket": cfg.get("release_ticket", "AB-5382"),
+                                    "icon": "🚀", "title": f"Released {app} {ver}",
+                                    "minutes": 15}
     return list(seen.values())
 
 
@@ -521,8 +522,12 @@ def activity_payload(date):
     have = set()
     if path.exists():
         have = {e.get("ticket") for e in cli.read_day(path) if not e.get("logged")}
+    have_desc = ""
+    if path.exists():
+        have_desc = " | ".join(e.get("description", "") for e in cli.read_day(path)
+                               if not e.get("logged"))
     try:
-        items = release_suggestions(date) \
+        items = [r for r in release_suggestions(date) if r["title"] not in have_desc] \
             + [i for i in jira_activity(date) if i["ticket"] not in have]
         return {"suggestions": items}
     except Exception as exc:

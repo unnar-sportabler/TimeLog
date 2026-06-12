@@ -177,7 +177,7 @@ async function loadSuggestions(date) {
     btn.onclick = () => act({ action: "add_suggestion", new_ticket: s.ticket, minutes: s.minutes, title: s.title });
     el.appendChild(btn);
     el.insertAdjacentHTML("beforeend",
-      `<span class="s-ticket">${s.ticket || s.icon || ""}</span><span class="s-title">${s.title}</span><span class="s-mins">${fmt(s.minutes)}</span>`);
+      `<span class="s-ticket">${s.icon || ""}${s.ticket || ""}</span><span class="s-title">${s.title}</span><span class="s-mins">${fmt(s.minutes)}</span>`);
     sec.appendChild(el);
   }
 }
