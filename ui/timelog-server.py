@@ -376,18 +376,42 @@ def mutate(date, body):
 _activity_cache = {}  # date -> [{ticket, title}]
 
 
+def _day_event_count(key, date, me):
+    """Number of changelog entries the user made on the issue that day."""
+    res = jira_get(f"/rest/api/3/issue/{key}/changelog?maxResults=100")
+    histories = res.get("values", [])
+    total = res.get("total", 0)
+    if total > 100:  # day's events are at the tail for long-lived issues
+        res = jira_get(f"/rest/api/3/issue/{key}/changelog?startAt={total - 100}&maxResults=100")
+        histories = res.get("values", [])
+    return sum(1 for h in histories
+               if h.get("author", {}).get("accountId") == me
+               and h.get("created", "")[:10] == date)
+
+
 def jira_activity(date):
     """Tickets the user touched in Jira that day (status changes, created) —
-    rebuilds the Jira-sourced cards from Tempo's Activity Feed via plain JQL."""
+    rebuilds the Jira-sourced cards from Tempo's Activity Feed via plain JQL.
+    Suggested minutes mirror Tempo's heuristic: ~15m per action, capped at 2h."""
     if date in _activity_cache:
         return _activity_cache[date]
     nxt = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
     jql = (f'(status CHANGED BY currentUser() DURING ("{date}", "{nxt}")) '
            f'OR (reporter = currentUser() AND created >= "{date}" AND created < "{nxt}")')
     res = jira_get("/rest/api/3/search/jql?jql=" + urllib.parse.quote(jql)
-                   + "&fields=summary&maxResults=50")
-    items = [{"ticket": i["key"], "title": i.get("fields", {}).get("summary", "")}
-             for i in res.get("issues", [])]
+                   + "&fields=summary,created,reporter&maxResults=50")
+    me = account_id()
+    items = []
+    for i in res.get("issues", []):
+        f = i.get("fields", {})
+        try:
+            events = _day_event_count(i["key"], date, me)
+        except Exception:
+            events = 0
+        if (f.get("reporter") or {}).get("accountId") == me and f.get("created", "")[:10] == date:
+            events += 1  # creating the issue counts as an action
+        items.append({"ticket": i["key"], "title": f.get("summary", ""),
+                      "minutes": min(120, max(15, events * 15))})
     # remember the summaries for the main table too
     titles = cli.load_titles()
     fresh = {i["ticket"]: i["title"] for i in items if i["title"] and i["ticket"] not in titles}
