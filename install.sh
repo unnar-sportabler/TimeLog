@@ -22,7 +22,8 @@ done
 
 echo "== Installing runtime to $APP"
 mkdir -p "$APP" "$HOME/.claude/timelog/daily" "$HOME/.claude/timelog/sessions" "$HOME/.claude/timelog/overrides"
-cp "$ROOT"/hooks/* "$APP/"
+# installed flat: the server resolves the CLI relative to its own location
+cp "$ROOT"/hooks/* "$ROOT"/cli/* "$ROOT"/ui/* "$ROOT"/tests/* "$APP/"
 chmod +x "$APP"/*.sh
 
 echo "== Installing skills to ~/.claude/commands"
