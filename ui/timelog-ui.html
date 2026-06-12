@@ -97,7 +97,13 @@
   #logged-section h3 { color: var(--dim); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
   .logged-row { display: flex; gap: 10px; align-items: baseline; font-size: 13px; padding: 2px 14px; color: var(--dim); }
   .logged-row .l-check { color: var(--ok); flex-shrink: 0; }
-  .logged-row .l-mins { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); opacity: .8; flex-shrink: 0; }
+  .logged-row .l-mins { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); opacity: .8; flex-shrink: 0; cursor: pointer; border-radius: 5px; padding: 0 4px; }
+  .logged-row .l-mins:hover { background: var(--row-hover); }
+  .logged-row .l-mins.pending { color: var(--warn); opacity: 1; }
+  .logged-row.deleted .l-ticket, .logged-row.deleted .l-title { text-decoration: line-through; opacity: .5; }
+  .logged-row .l-x, .logged-row .l-undo { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 12px; padding: 0 4px; border-radius: 4px; flex-shrink: 0; }
+  .logged-row .l-x:hover { color: var(--danger); }
+  .logged-row .l-undo:hover { color: var(--text); }
   .logged-row .l-ticket { color: var(--accent); font-weight: 600; flex-shrink: 0; }
   .logged-row .l-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #suggestions-section { margin-top: 6px; }
@@ -132,6 +138,14 @@ const fmt = m => { const h = Math.floor(m / 60), r = m % 60;
   return h && r ? `${h}h ${r}m` : h ? `${h}h` : `${r}m`; };
 const weekday = (date, style) =>
   new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: style });
+
+function parseTime(s) {
+  s = s.trim().toLowerCase();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);                     // "90" = minutes
+  const hm = s.match(/^(?:(\d+(?:[.,]\d+)?)\s*h)?\s*(?:(\d+)\s*m)?$/);
+  if (!hm || (!hm[1] && !hm[2])) return null;
+  return Math.round(parseFloat((hm[1] || "0").replace(",", ".")) * 60) + parseInt(hm[2] || "0", 10);
+}
 
 async function api(path, body) {
   const res = await fetch(path, body
@@ -199,7 +213,7 @@ async function loadSuggestions(date) {
 function render() {
   const d = dayData;
   const main = document.getElementById("main");
-  if (!d.groups.length) { main.innerHTML = '<div class="empty">Day is empty now.</div>'; currentDate = null; return; }
+  if (!d.groups.length && !(d.logged || []).length) { main.innerHTML = '<div class="empty">Day is empty now.</div>'; currentDate = null; return; }
   const total = d.groups.reduce((s, g) => s + g.allocated_min, 0);
   const over = total > d.target;
   main.innerHTML = `
@@ -240,8 +254,10 @@ function render() {
       alert("Assign a ticket to every row first (or delete / mark not-work the unknown ones).");
       return;
     }
+    const editCount = (d.logged || []).filter(w => w.pending_minutes !== undefined).length;
     const lines = d.groups.map(g => `  ${g.ticket}  ${fmt(g.allocated_min)}`).join("\n");
-    if (!confirm(`Submit ${d.groups.length} worklog(s) to Tempo for ${d.date}?\n\n${lines}`)) return;
+    const editNote = editCount ? `\n\n+ ${editCount} change(s) to already-logged worklogs` : "";
+    if (!confirm(`Submit ${d.groups.length} worklog(s) to Tempo for ${d.date}?\n\n${lines}${editNote}`)) return;
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="spinner"></span>Submitting…';
     document.getElementById("main").classList.add("submitting");
@@ -277,13 +293,36 @@ function render() {
   if (d.logged && d.logged.length) {
     main.querySelector("#sep-logged").style.display = "";
     const sec = main.querySelector("#logged-section");
-    const tot = d.logged.reduce((s, w) => s + w.minutes, 0);
-    sec.innerHTML = `<h3>Already in Tempo — ${fmt(tot)}</h3>`;
+    const tot = d.logged.reduce((s, w) => s + (w.pending_minutes ?? w.minutes), 0);
+    const pendingCount = d.logged.filter(w => w.pending_minutes !== undefined).length;
+    sec.innerHTML = `<h3>Already in Tempo — ${fmt(tot)}${pendingCount ? ` <span style="color:var(--warn)">(${pendingCount} pending change${pendingCount > 1 ? "s" : ""} — applied on Submit day)</span>` : ""}</h3>`;
     for (const w of d.logged) {
+      const pending = w.pending_minutes !== undefined;
+      const deleted = pending && w.pending_minutes === 0;
+      const shown = pending ? w.pending_minutes : w.minutes;
       const el = document.createElement("div");
-      el.className = "logged-row";
-      el.innerHTML = `<span class="l-check">✓</span><span class="l-mins">${fmt(w.minutes)}</span>
+      el.className = "logged-row" + (deleted ? " deleted" : "");
+      el.innerHTML = `<span class="l-check">${pending ? "✎" : "✓"}</span>
+        <span class="l-mins ${pending ? "pending" : ""}" title="Click to change time">${deleted ? "0m" : fmt(shown)}${pending && !deleted ? ` <s style="opacity:.5">${fmt(w.minutes)}</s>` : ""}</span>
         <span class="l-ticket">${w.ticket || "?"}</span><span class="l-title">${w.title || w.description}</span>`;
+      el.querySelector(".l-mins").onclick = () => {
+        const v = prompt(`New time for ${w.ticket} (e.g. 90, 1h 30m). 0 deletes the worklog.`, fmt(shown));
+        if (v === null) return;
+        const mins = parseTime(v);
+        if (mins === null) { alert("Couldn't parse that time."); return; }
+        act({ action: "set_logged_edit", worklog_id: w.id, minutes: mins });
+      };
+      if (pending) {
+        const undo = document.createElement("button");
+        undo.className = "l-undo"; undo.textContent = "↩ undo";
+        undo.onclick = () => act({ action: "clear_logged_edit", worklog_id: w.id });
+        el.appendChild(undo);
+      } else {
+        const x = document.createElement("button");
+        x.className = "l-x"; x.textContent = "✕"; x.title = "Stage deletion (applied on Submit day)";
+        x.onclick = () => act({ action: "set_logged_edit", worklog_id: w.id, minutes: 0 });
+        el.appendChild(x);
+      }
       sec.appendChild(el);
     }
   }

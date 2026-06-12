@@ -59,9 +59,9 @@ def load_creds():
     return creds
 
 
-def http_json(url, headers, payload=None, timeout=15):
+def http_json(url, headers, payload=None, timeout=15, method=None):
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers={
+    req = urllib.request.Request(url, data=data, method=method, headers={
         **headers, "Accept": "application/json",
         **({"Content-Type": "application/json"} if payload is not None else {}),
     })
@@ -78,12 +78,13 @@ def jira_get(path):
     return http_json(base + path, {"Authorization": f"Basic {auth}"})
 
 
-def tempo_call(path, payload=None):
+def tempo_call(path, payload=None, method=None):
     c = load_creds()
     if not c.get("TEMPO_TOKEN"):
         raise RuntimeError("TEMPO_TOKEN missing")
     return http_json(TEMPO_BASE + path,
-                     {"Authorization": f"Bearer {c['TEMPO_TOKEN']}"}, payload)
+                     {"Authorization": f"Bearer {c['TEMPO_TOKEN']}"}, payload,
+                     method=method)
 
 
 def tempo_ready():
@@ -127,8 +128,12 @@ def tempo_worklogs(date):
                 ticket, title = issue_by_id((w.get("issue") or {}).get("id"))
             except Exception:
                 pass
-            logs.append({"ticket": ticket, "title": title, "minutes": minutes,
-                         "description": w.get("description", "")})
+            logs.append({"id": w.get("tempoWorklogId"), "ticket": ticket,
+                         "title": title, "minutes": minutes,
+                         "description": w.get("description", ""),
+                         "issueId": (w.get("issue") or {}).get("id"),
+                         "startDate": w.get("startDate", date),
+                         "authorAccountId": (w.get("author") or {}).get("accountId", "")})
         _tempo_cache[date] = logs
     return _tempo_cache[date]
 
@@ -215,7 +220,8 @@ def session_prompts(session_id, limit=3, max_len=300):
 def save_overrides(date, ov):
     cli.OVERRIDES.mkdir(parents=True, exist_ok=True)
     path = cli.OVERRIDES / f"{date}.json"
-    if not ov.get("locks") and not ov.get("target") and ov.get("fill", True):
+    if (not ov.get("locks") and not ov.get("target") and ov.get("fill", True)
+            and not ov.get("logged_edits")):
         path.unlink(missing_ok=True)
     else:
         path.write_text(json.dumps(ov, indent=1))
@@ -248,10 +254,15 @@ def day_payload(date):
             locks[i] = int(ov_locks[key])
     already = 0
     logged = []
+    edits = {str(k): int(v) for k, v in ov.get("logged_edits", {}).items()}
     if tempo_ready():
         try:
-            logged = tempo_worklogs(date)
-            already = sum(w["minutes"] for w in logged) if fill else 0
+            logged = [dict(w) for w in tempo_worklogs(date)]
+            for w in logged:
+                wid = str(w["id"])
+                if wid in edits:
+                    w["pending_minutes"] = edits[wid]
+            already = sum(edits.get(str(w["id"]), w["minutes"]) for w in logged) if fill else 0
         except Exception:
             logged = []
     # fill off -> available 0: locks honored, the rest stay at bucketed time
@@ -380,6 +391,19 @@ def mutate(date, body):
         victims = {id(e) for e in group_entries(entries, ticket, repos)
                    if e.get("session_id") == sid}
         write_day(date, [e for e in entries if id(e) not in victims])
+
+    elif action == "set_logged_edit":
+        # stage a change to an already-submitted Tempo worklog (minutes 0 = delete);
+        # applied on the next "Submit day"
+        edits = ov.setdefault("logged_edits", {})
+        edits[str(body["worklog_id"])] = max(0, int(body["minutes"]))
+        save_overrides(date, ov)
+
+    elif action == "clear_logged_edit":
+        ov.get("logged_edits", {}).pop(str(body["worklog_id"]), None)
+        if not ov.get("logged_edits"):
+            ov.pop("logged_edits", None)
+        save_overrides(date, ov)
 
     elif action == "add_suggestion":
         key = (body.get("new_ticket") or "").strip().upper() or "unknown"
@@ -621,12 +645,42 @@ def submit_day(date):
                          "JIRA_TOKEN, TEMPO_TOKEN)."}
     payload = day_payload(date)
     groups = payload["groups"]
-    if not groups:
+    ov = cli.load_overrides(date)
+    edits = ov.get("logged_edits", {})
+    if not groups and not edits:
         return {"error": "Nothing to submit."}
     if any(g["ticket"] == "unknown" for g in groups):
         return {"error": "Assign a ticket to every row first (or delete / mark "
                          "not-work the unknown ones)."}
     results = []
+
+    # apply staged edits to already-submitted worklogs first
+    if edits:
+        logs = {str(w["id"]): w for w in tempo_worklogs(date)}
+        for wid, minutes in edits.items():
+            w = logs.get(str(wid))
+            if not w:
+                continue
+            label = f"{w['ticket']} (edit)"
+            try:
+                if int(minutes) <= 0:
+                    tempo_call(f"/worklogs/{wid}", method="DELETE")
+                    results.append({"ticket": f"{w['ticket']} (deleted)", "minutes": w["minutes"], "ok": True})
+                else:
+                    tempo_call(f"/worklogs/{wid}", method="PUT", payload={
+                        "issueId": w["issueId"],
+                        "timeSpentSeconds": int(minutes) * 60,
+                        "startDate": w["startDate"],
+                        "description": w["description"],
+                        "authorAccountId": w["authorAccountId"],
+                    })
+                    results.append({"ticket": label, "minutes": int(minutes), "ok": True})
+            except Exception as exc:
+                results.append({"ticket": label, "minutes": int(minutes),
+                                "ok": False, "error": str(exc)[:200]})
+        ov.pop("logged_edits", None)
+        save_overrides(date, ov)
+        _tempo_cache.pop(date, None)
     for g in groups:
         repos = ", ".join(g["repos"])
         desc = f"Work on {g['ticket']} in {repos}" if repos else f"Work on {g['ticket']}"
