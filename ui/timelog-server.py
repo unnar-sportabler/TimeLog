@@ -12,8 +12,10 @@ target) — /submit-times picks both up automatically.
 
 import argparse
 import base64
+import glob
 import importlib.util
 import json
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -354,13 +356,14 @@ def mutate(date, body):
         write_day(date, [e for e in entries if id(e) not in victims])
 
     elif action == "add_suggestion":
-        key = body["new_ticket"].strip().upper()
+        key = (body.get("new_ticket") or "").strip().upper() or "unknown"
         minutes = max(15, int(body.get("minutes", 15)))
+        title = body.get("title", "")
         entries.append({
-            "session_id": f"suggestion-{key}",
+            "session_id": f"suggestion-{key if key != 'unknown' else title or 'untitled'}",
             "date": date, "ticket": key, "repos": [],
             "minutes": minutes, "edit_count": 0,
-            "description": "Jira activity", "category": "work", "logged": False,
+            "description": title or "Jira activity", "category": "work", "logged": False,
         })
         write_day(date, entries)
 
@@ -454,6 +457,39 @@ def jira_activity(date):
     return items
 
 
+def release_suggestions(date):
+    """Releases the user cut that day, read from apps/* git tags (tagger + date).
+    Jira's version API has no author and usually no releaseDate; tags have both."""
+    cfg = load_config()
+    me = cfg.get("git_name", "")
+    pattern = Path(cfg.get("release_repos_glob", "~/sportabler/AblerAI4/*")).expanduser()
+    if not me:
+        return []
+    seen = {}
+    for repo in glob.glob(str(pattern)):
+        if not (Path(repo) / ".git").exists():
+            continue
+        try:
+            out = subprocess.run(
+                ["git", "-C", repo, "for-each-ref", "--sort=-creatordate",
+                 "--format=%(creatordate:short)\t%(taggername)%(authorname)\t%(refname:short)",
+                 "refs/tags/apps"],
+                capture_output=True, text=True, timeout=10).stdout
+        except Exception:
+            continue
+        for line in out.splitlines():
+            tag_date, tagger, ref = (line.split("\t") + ["", ""])[:3]
+            if tag_date != date or me not in tagger:
+                continue
+            parts = ref.split("/")  # apps/<app>/<version>
+            if len(parts) < 3:
+                continue
+            app, ver = parts[1], parts[2].removesuffix(".0")
+            seen[f"{app}-{ver}"] = {"ticket": "", "icon": "🚀",
+                                    "title": f"Released {app} {ver}", "minutes": 15}
+    return list(seen.values())
+
+
 def activity_payload(date):
     c = load_creds()
     if not (c.get("JIRA_EMAIL") and c.get("JIRA_TOKEN")):
@@ -463,7 +499,8 @@ def activity_payload(date):
     if path.exists():
         have = {e.get("ticket") for e in cli.read_day(path) if not e.get("logged")}
     try:
-        items = [i for i in jira_activity(date) if i["ticket"] not in have]
+        items = release_suggestions(date) \
+            + [i for i in jira_activity(date) if i["ticket"] not in have]
         return {"suggestions": items}
     except Exception as exc:
         return {"suggestions": [], "unavailable": str(exc)[:150]}
