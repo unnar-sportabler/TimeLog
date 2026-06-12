@@ -457,6 +457,29 @@ def jira_activity(date):
     return items
 
 
+_last_tag_fetch = 0.0
+
+
+def _fetch_tags(repos):
+    """Refresh tags so releases cut on other machines show up. Throttled."""
+    global _last_tag_fetch
+    import time
+    if time.time() - _last_tag_fetch < 600:
+        return
+    _last_tag_fetch = time.time()
+    from concurrent.futures import ThreadPoolExecutor
+
+    def fetch(repo):
+        try:
+            subprocess.run(["git", "-C", repo, "fetch", "--tags", "--quiet"],
+                           capture_output=True, timeout=20)
+        except Exception:
+            pass  # offline / auth issues -> local tags still serve
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        list(ex.map(fetch, repos))
+
+
 def release_suggestions(date):
     """Releases the user cut that day, read from apps/* git tags (tagger + date).
     Jira's version API has no author and usually no releaseDate; tags have both."""
@@ -465,10 +488,10 @@ def release_suggestions(date):
     pattern = Path(cfg.get("release_repos_glob", "~/sportabler/AblerAI4/*")).expanduser()
     if not me:
         return []
+    repos = [r for r in glob.glob(str(pattern)) if (Path(r) / ".git").exists()]
+    _fetch_tags(repos)
     seen = {}
-    for repo in glob.glob(str(pattern)):
-        if not (Path(repo) / ".git").exists():
-            continue
+    for repo in repos:
         try:
             out = subprocess.run(
                 ["git", "-C", repo, "for-each-ref", "--sort=-creatordate",
