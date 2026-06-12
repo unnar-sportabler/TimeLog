@@ -17,6 +17,7 @@ import json
 import sys
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -352,6 +353,17 @@ def mutate(date, body):
                    if e.get("session_id") == sid}
         write_day(date, [e for e in entries if id(e) not in victims])
 
+    elif action == "add_suggestion":
+        key = body["new_ticket"].strip().upper()
+        minutes = max(15, int(body.get("minutes", 15)))
+        entries.append({
+            "session_id": f"suggestion-{key}",
+            "date": date, "ticket": key, "repos": [],
+            "minutes": minutes, "edit_count": 0,
+            "description": "Jira activity", "category": "work", "logged": False,
+        })
+        write_day(date, entries)
+
     elif action == "delete_day":
         write_day(date, [])
 
@@ -359,6 +371,46 @@ def mutate(date, body):
         return {"error": f"unknown action {action}"}
 
     return day_payload(date)
+
+
+_activity_cache = {}  # date -> [{ticket, title}]
+
+
+def jira_activity(date):
+    """Tickets the user touched in Jira that day (status changes, created) —
+    rebuilds the Jira-sourced cards from Tempo's Activity Feed via plain JQL."""
+    if date in _activity_cache:
+        return _activity_cache[date]
+    nxt = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    jql = (f'(status CHANGED BY currentUser() DURING ("{date}", "{nxt}")) '
+           f'OR (reporter = currentUser() AND created >= "{date}" AND created < "{nxt}")')
+    res = jira_get("/rest/api/3/search/jql?jql=" + urllib.parse.quote(jql)
+                   + "&fields=summary&maxResults=50")
+    items = [{"ticket": i["key"], "title": i.get("fields", {}).get("summary", "")}
+             for i in res.get("issues", [])]
+    # remember the summaries for the main table too
+    titles = cli.load_titles()
+    fresh = {i["ticket"]: i["title"] for i in items if i["title"] and i["ticket"] not in titles}
+    if fresh:
+        titles.update(fresh)
+        cli.TITLES.write_text(json.dumps(titles, indent=1, ensure_ascii=False))
+    _activity_cache[date] = items
+    return items
+
+
+def activity_payload(date):
+    c = load_creds()
+    if not (c.get("JIRA_EMAIL") and c.get("JIRA_TOKEN")):
+        return {"suggestions": [], "unavailable": "jira credentials not configured"}
+    path = cli.DAILY / f"{date}.jsonl"
+    have = set()
+    if path.exists():
+        have = {e.get("ticket") for e in cli.read_day(path) if not e.get("logged")}
+    try:
+        items = [i for i in jira_activity(date) if i["ticket"] not in have]
+        return {"suggestions": items}
+    except Exception as exc:
+        return {"suggestions": [], "unavailable": str(exc)[:150]}
 
 
 def settings_status():
@@ -489,6 +541,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(settings_status())
         elif self.path.startswith("/api/session/"):
             self.send_json({"prompts": session_prompts(self.path.rsplit("/", 1)[1])})
+        elif self.path.startswith("/api/activity/"):
+            self.send_json(activity_payload(self.path.rsplit("/", 1)[1]))
         elif self.path.startswith("/api/day/"):
             self.send_json(day_payload(self.path.rsplit("/", 1)[1]))
         else:
