@@ -167,17 +167,19 @@ async function loadSuggestions(date) {
   if (!sec) return;
   const res = await api("/api/activity/" + date);
   if (date !== currentDate || !res.suggestions.length) { if (sec) sec.innerHTML = ""; return; }
-  sec.innerHTML = "<h3>Suggestions — your Jira activity this day</h3>";
+  sec.innerHTML = res.source === "tempo"
+    ? "<h3>Suggestions — Tempo My Work</h3>"
+    : "<h3>Suggestions — your Jira activity this day</h3>";
   for (const s of res.suggestions) {
     const el = document.createElement("div");
     el.className = "suggestion-row";
     const btn = document.createElement("button");
     btn.textContent = "+";
     btn.title = `Add as ${fmt(s.minutes)} entry (drag to adjust after)`;
-    btn.onclick = () => act({ action: "add_suggestion", new_ticket: s.ticket, minutes: s.minutes });
+    btn.onclick = () => act({ action: "add_suggestion", new_ticket: s.ticket, minutes: s.minutes, title: s.title });
     el.appendChild(btn);
     el.insertAdjacentHTML("beforeend",
-      `<span class="s-ticket">${s.ticket}</span><span class="s-title">${s.title}</span><span class="s-mins">${fmt(s.minutes)}</span>`);
+      `<span class="s-ticket">${s.ticket || "📅"}</span><span class="s-title">${s.title}</span><span class="s-mins">${fmt(s.minutes)}</span>`);
     sec.appendChild(el);
   }
 }
@@ -401,6 +403,8 @@ document.getElementById("settings-link").onclick = async () => {
     <input id="s-jira" type="password" placeholder="${s.has_jira_token ? "unchanged" : "paste token"}">
     <label>Tempo API token ${s.has_tempo_token ? "(set ✓)" : "(missing)"}</label>
     <input id="s-tempo" type="password" placeholder="${s.has_tempo_token ? "unchanged" : "paste token"}">
+    <label>Tempo session cookie ${s.has_tempo_cookie ? "(set ✓)" : "(optional — enables real My Work suggestions)"}</label>
+    <input id="s-cookie" type="password" placeholder="${s.has_tempo_cookie ? "unchanged" : "DevTools → suggestions request → Copy as cURL → Cookie header value"}">
     <div class="result"></div>
     <div class="btns"><button id="s-close">Close</button><button class="primary" id="s-save">Save & verify</button></div>
   </div>`;
@@ -414,6 +418,7 @@ document.getElementById("settings-link").onclick = async () => {
       jira_email: bg.querySelector("#s-email").value,
       jira_token: bg.querySelector("#s-jira").value,
       tempo_token: bg.querySelector("#s-tempo").value,
+      tempo_cookie: bg.querySelector("#s-cookie").value,
     });
     result.innerHTML =
       (r.jira_ok ? `<div class="ok">✓ Jira: authenticated as ${r.jira_user}</div>`
