@@ -29,8 +29,14 @@ if echo "$PROMPT" | grep -iqE 'submit-times|review-times|submit times|review tim
   META_FLAG=true
 fi
 
-jq -cn --argjson ts "$(date +%s)" --arg ticket "$TICKET" --argjson meta "$META_FLAG" \
-  '{ts: $ts, event: "prompt", ticket: $ticket, meta: $meta}' \
+# Known repo names mentioned in the prompt — fallback repo signal for sessions
+# with no file edits (research/debugging). Edit-derived repos always win.
+REPOS=$(echo "$PROMPT" | grep -oiE '\b(nest-api|abler-web|abler-monorepo|abler-ai)\b' \
+  | tr '[:upper:]' '[:lower:]' | sort -u | paste -sd, -)
+REPOS="${REPOS:-}"
+
+jq -cn --argjson ts "$(date +%s)" --arg ticket "$TICKET" --argjson meta "$META_FLAG" --arg repos "$REPOS" \
+  '{ts: $ts, event: "prompt", ticket: $ticket, meta: $meta, repos: $repos}' \
   >> "$LOG"
 
 exit 0

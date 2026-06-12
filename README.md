@@ -27,6 +27,10 @@ habits make the difference between clean days and ⚠️ unknown cleanup:
 - **Work on ticket branches.** Every file edit picks its ticket from the branch
   name (`feature/AB-12345-login-fix`), repo from the git root. Edits are the
   strongest signal — branch discipline ≈ zero manual cleanup.
+- **Naming the repo helps too** (`AB-12345 in nest-api`). Primarily it scopes
+  the agent to the right codebase; for sessions with no file edits (research,
+  debugging) it's also the only repo signal the tracker gets — known repo names
+  mentioned in prompts become the entry's repos when there are no edits.
 - **Sessions spanning midnight are fine.** The after-midnight part inherits the
   session's dominant ticket automatically.
 - **Multiple tickets in one session work** — time is split proportionally to

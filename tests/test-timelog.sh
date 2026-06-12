@@ -509,6 +509,17 @@ assert_eq("midnight spill: one record on day 2", len(recs), 1)
 assert_eq("midnight spill: inherits ticket", recs[0]["ticket"] if recs else None, "AB-200")
 assert_eq("midnight spill: inherits repos", recs[0]["repos"] if recs else None, ["nest-api"])
 
+# 11g: zero-edit session — repos mentioned in prompts used as fallback
+write_fake_session("sess-promptrepo", [
+    {"ts": make_ts(0, 9, 0), "event": "start", "cwd": "/tmp"},
+    {"ts": make_ts(0, 9, 5), "event": "prompt", "ticket": "AB-300", "meta": False, "repos": "nest-api,abler-web"},
+    {"ts": make_ts(0, 9, 45), "event": "prompt", "ticket": "", "meta": False, "repos": ""},
+])
+run_session_end_real("sess-promptrepo")
+recs = [r for r in read_fake_daily(day0) if r["session_id"] == "sess-promptrepo"]
+assert_eq("prompt repos: one record", len(recs), 1)
+assert_eq("prompt repos: fallback applied", recs[0]["repos"] if recs else None, ["abler-web", "nest-api"])
+
 shutil_cleanup_dirs = [fake_home]
 
 

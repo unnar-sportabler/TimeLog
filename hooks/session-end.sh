@@ -152,6 +152,10 @@ for e in entries:
         if ticket != "unknown":
             ticket_signals.append((ts, ticket, None, False, ""))
 
+# Repos mentioned in prompt text — fallback for sessions with no edits
+prompt_repos = sorted({r for e in entries if e.get("event") == "prompt"
+                       for r in (e.get("repos") or "").split(",") if r})
+
 # Explicit opt-out: user typed "ignoretime" in any prompt
 is_ignored = any(e.get("event") == "ignore" for e in entries)
 
@@ -205,6 +209,8 @@ for day_str, total_seconds in sorted(per_day_seconds.items()):
             if by_ticket:
                 ticket = max(by_ticket, key=by_ticket.get)
                 repos = sorted(set(s[2] for s in ticket_signals if s[1] == ticket and s[2]))
+        if not repos:
+            repos = prompt_repos
         day_records[day_str].append({
             "session_id": session_id,
             "date": day_str,
@@ -227,7 +233,7 @@ for day_str, total_seconds in sorted(per_day_seconds.items()):
             count = len(signals)
             minutes = max(1, round(day_minutes * count / total_signal_count))
             edit_signals = [s for s in signals if s[3]]
-            repos = sorted(set(s[2] for s in signals if s[2]))
+            repos = sorted(set(s[2] for s in signals if s[2])) or prompt_repos
             description = build_edit_description(edit_signals) if edit_signals else ""
             day_records[day_str].append({
                 "session_id": session_id,
