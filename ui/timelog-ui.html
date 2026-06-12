@@ -94,11 +94,11 @@
   .actions button:hover { color: var(--text); background: var(--bg); }
   #suggestions-section { margin-top: 26px; }
   #suggestions-section h3 { color: var(--dim); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
-  .suggestion-row { display: flex; gap: 10px; align-items: baseline; font-size: 13px; padding: 4px 14px; color: var(--dim); }
+  .suggestion-row { display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 3px 14px; color: var(--dim); }
   .suggestion-row .s-ticket { color: var(--accent); font-weight: 600; flex-shrink: 0; }
   .suggestion-row .s-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .suggestion-row button { background: none; border: 1px solid #3a4150; color: var(--dim); border-radius: 5px; cursor: pointer; font-size: 11px; padding: 1px 7px; flex-shrink: 0; }
-  .suggestion-row button:hover { color: var(--text); border-color: var(--accent); }
+  .suggestion-row button { background: var(--accent-dim); border: none; color: #fff; border-radius: 7px; cursor: pointer; font-size: 16px; font-weight: 700; width: 28px; height: 28px; line-height: 1; flex-shrink: 0; }
+  .suggestion-row button:hover { background: var(--accent); }
   #meta-section { margin-top: 26px; }
   #meta-section h3 { color: var(--dim); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
   .meta-row { color: var(--dim); font-size: 13px; padding: 4px 14px; display: flex; gap: 10px; align-items: center; }
@@ -170,11 +170,13 @@ async function loadSuggestions(date) {
   for (const s of res.suggestions) {
     const el = document.createElement("div");
     el.className = "suggestion-row";
-    el.innerHTML = `<span class="s-ticket">${s.ticket}</span><span class="s-title">${s.title}</span>`;
     const btn = document.createElement("button");
-    btn.textContent = "+ add 15m";
+    btn.textContent = "+";
+    btn.title = "Add as 15m entry (drag to adjust after)";
     btn.onclick = () => act({ action: "add_suggestion", new_ticket: s.ticket });
     el.appendChild(btn);
+    el.insertAdjacentHTML("beforeend",
+      `<span class="s-ticket">${s.ticket}</span><span class="s-title">${s.title}</span>`);
     sec.appendChild(el);
   }
 }
