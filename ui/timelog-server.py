@@ -354,14 +354,13 @@ def mutate(date, body):
         write_day(date, [e for e in entries if id(e) not in victims])
 
     elif action == "add_suggestion":
-        key = (body.get("new_ticket") or "").strip().upper() or "unknown"
+        key = body["new_ticket"].strip().upper()
         minutes = max(15, int(body.get("minutes", 15)))
-        title = body.get("title", "")
         entries.append({
-            "session_id": f"suggestion-{key if key != 'unknown' else title or 'untitled'}",
+            "session_id": f"suggestion-{key}",
             "date": date, "ticket": key, "repos": [],
             "minutes": minutes, "edit_count": 0,
-            "description": title or "Jira activity", "category": "work", "logged": False,
+            "description": "Jira activity", "category": "work", "logged": False,
         })
         write_day(date, entries)
 
@@ -374,52 +373,7 @@ def mutate(date, body):
     return day_payload(date)
 
 
-_activity_cache = {}  # date -> [{ticket, title, minutes}]
-_origin_keys = {}     # jira numeric id -> (key, summary)
-
-
-def tempo_app_get(path):
-    """Call Tempo's internal app API with the captured browser session cookie."""
-    c = load_creds()
-    cookie = c.get("TEMPO_COOKIE")
-    if not cookie:
-        raise RuntimeError("TEMPO_COOKIE missing")
-    return http_json("https://app.tempo.io" + path, {
-        "Cookie": cookie,
-        "Referer": "https://app.tempo.io/io/web/tempo-app/",
-    })
-
-
-def resolve_origin(origin_id):
-    """Jira numeric issue id -> (key, summary)."""
-    if origin_id not in _origin_keys:
-        i = jira_get(f"/rest/api/3/issue/{origin_id}?fields=summary")
-        _origin_keys[origin_id] = (i["key"], i.get("fields", {}).get("summary", ""))
-    return _origin_keys[origin_id]
-
-
-def tempo_suggestions(date):
-    """Real suggestions from Tempo's internal API (same data as My Work cards)."""
-    tz = urllib.parse.quote("Atlantic/Reykjavik")
-    res = tempo_app_get(f"/rest/suggestions/?from={date}&to={date}"
-                        f"&minimumGapMinutes=15&segmentGranularityMinutes=15&userTimezone={tz}")
-    groups = {}  # groupId -> {ticket, title, minutes}
-    for s in res:
-        if s.get("started", "")[:10] != date:
-            continue
-        minutes = round(s.get("durationInSeconds", 0) / 60)
-        if minutes <= 0:
-            continue
-        gid = s.get("groupId") or s.get("title") or s.get("id")
-        g = groups.setdefault(gid, {"ticket": "", "title": s.get("title", ""), "minutes": 0})
-        g["minutes"] += minutes
-        task = s.get("task") or {}
-        if task.get("originEcosystem") == "jira" and task.get("originId"):
-            try:
-                g["ticket"], g["title"] = resolve_origin(task["originId"])
-            except Exception:
-                pass
-    return [g for g in groups.values() if g["ticket"] or g["title"]]
+_activity_cache = {}  # date -> [{ticket, title}]
 
 
 def _activity_stamps(key, date, me, created=None):
@@ -508,18 +462,9 @@ def activity_payload(date):
     have = set()
     if path.exists():
         have = {e.get("ticket") for e in cli.read_day(path) if not e.get("logged")}
-    source = "jira-activity heuristic"
     try:
-        if c.get("TEMPO_COOKIE"):
-            try:
-                items = tempo_suggestions(date)
-                source = "tempo"
-            except Exception:
-                items = jira_activity(date)  # cookie expired? fall back
-        else:
-            items = jira_activity(date)
-        items = [i for i in items if not i.get("ticket") or i["ticket"] not in have]
-        return {"suggestions": items, "source": source}
+        items = [i for i in jira_activity(date) if i["ticket"] not in have]
+        return {"suggestions": items}
     except Exception as exc:
         return {"suggestions": [], "unavailable": str(exc)[:150]}
 
@@ -530,7 +475,6 @@ def settings_status():
         "jira_email": c.get("JIRA_EMAIL", ""),
         "has_jira_token": bool(c.get("JIRA_TOKEN")),
         "has_tempo_token": bool(c.get("TEMPO_TOKEN")),
-        "has_tempo_cookie": bool(c.get("TEMPO_COOKIE")),
         "jira_base": load_config().get("jira_base", ""),
     }
 
@@ -544,8 +488,6 @@ def save_settings(body):
         c["JIRA_TOKEN"] = body["jira_token"].strip()
     if body.get("tempo_token"):
         c["TEMPO_TOKEN"] = body["tempo_token"].strip()
-    if body.get("tempo_cookie"):
-        c["TEMPO_COOKIE"] = body["tempo_cookie"].strip()
     CREDS.parent.mkdir(parents=True, exist_ok=True)
     CREDS.write_text("".join(f"{k}={v}\n" for k, v in c.items()))
     CREDS.chmod(0o600)
