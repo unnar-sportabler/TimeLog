@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="jira" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0052CC"/>
+      <stop offset="100%" stop-color="#2684FF"/>
+    </linearGradient>
+    <linearGradient id="abler" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E8FFA7"/>
+      <stop offset="100%" stop-color="#66D8BA"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1D2026"/>
+      <stop offset="100%" stop-color="#14161A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- app tile -->
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#bg)"/>
+
+  <!-- Jira diamond (lower-left), Atlassian blue -->
+  <rect x="240" y="384" width="400" height="400" rx="88"
+        transform="rotate(45 440 584)" fill="url(#jira)"/>
+
+  <!-- Abler diamond (upper-right), AblerGreen -->
+  <rect x="384" y="240" width="400" height="400" rx="88"
+        transform="rotate(45 584 440)" fill="url(#abler)" opacity="0.92"/>
+
+  <!-- overlap glow -->
+  <rect x="312" y="312" width="400" height="400" rx="88"
+        transform="rotate(45 512 512)" fill="#FFFFFF" opacity="0.10"/>
+
+  <!-- clock: tick marks -->
+  <g stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" opacity="0.85">
+    <line x1="512" y1="306" x2="512" y2="354"/>
+    <line x1="512" y1="670" x2="512" y2="718"/>
+    <line x1="306" y1="512" x2="354" y2="512"/>
+    <line x1="670" y1="512" x2="718" y2="512"/>
+  </g>
+
+  <!-- clock hands: ~10:10 -->
+  <g stroke="#FFFFFF" stroke-linecap="round">
+    <line x1="512" y1="512" x2="512" y2="380" stroke-width="40"/>
+    <line x1="512" y1="512" x2="622" y2="576" stroke-width="34"/>
+  </g>
+  <circle cx="512" cy="512" r="30" fill="#FFFFFF"/>
+</svg>
