@@ -92,14 +92,15 @@
   .actions { display: flex; gap: 6px; justify-content: flex-end; }
   .actions button { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 15px; padding: 2px; border-radius: 5px; }
   .actions button:hover { color: var(--text); background: var(--bg); }
-  #logged-section { margin-bottom: 16px; }
+  .section-sep { border: none; border-top: 1px solid #313845; margin: 22px 0; }
+  #logged-section { margin-bottom: 6px; }
   #logged-section h3 { color: var(--dim); font-size: 13px; font-weight: 600; margin-bottom: 6px; }
   .logged-row { display: flex; gap: 10px; align-items: baseline; font-size: 13px; padding: 2px 14px; color: var(--dim); }
   .logged-row .l-check { color: var(--ok); flex-shrink: 0; }
   .logged-row .l-mins { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); opacity: .8; flex-shrink: 0; }
   .logged-row .l-ticket { color: var(--accent); font-weight: 600; flex-shrink: 0; }
   .logged-row .l-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #suggestions-section { margin-top: 26px; }
+  #suggestions-section { margin-top: 6px; }
   #suggestions-section h3 { color: var(--dim); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
   .suggestion-row { display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 3px 14px; color: var(--dim); }
   .suggestion-row .s-ticket { color: var(--accent); font-weight: 600; flex-shrink: 0; }
@@ -173,7 +174,13 @@ async function loadSuggestions(date) {
   const sec = document.getElementById("suggestions-section");
   if (!sec) return;
   const res = await api("/api/activity/" + date);
-  if (date !== currentDate || !res.suggestions.length) { if (sec) sec.innerHTML = ""; return; }
+  const sep = document.getElementById("sep-suggestions");
+  if (date !== currentDate || !res.suggestions.length) {
+    if (sec) sec.innerHTML = "";
+    if (sep) sep.style.display = "none";
+    return;
+  }
+  if (sep) sep.style.display = "";
   sec.innerHTML = "<h3>Suggestions — your Jira activity this day</h3>";
   for (const s of res.suggestions) {
     const el = document.createElement("div");
@@ -214,7 +221,9 @@ function render() {
     </div>
     <div id="submit-status"></div>
     <div id="logged-section"></div>
+    <hr class="section-sep" id="sep-logged" style="display:none">
     <div id="rows"></div>
+    <hr class="section-sep" id="sep-suggestions" style="display:none">
     <div id="suggestions-section"></div>
     <div id="meta-section"></div>
     <div id="danger-zone"><button id="del-day">Delete entire day</button></div>
@@ -266,6 +275,7 @@ function render() {
   };
 
   if (d.logged && d.logged.length) {
+    main.querySelector("#sep-logged").style.display = "";
     const sec = main.querySelector("#logged-section");
     const tot = d.logged.reduce((s, w) => s + w.minutes, 0);
     sec.innerHTML = `<h3>Already in Tempo — ${fmt(tot)}</h3>`;
