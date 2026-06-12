@@ -9,7 +9,7 @@ review, drag-adjust, and submit straight to Tempo.
 ## Install
 
 ```bash
-git clone <repo-url> ~/sportabler/TimeLog
+git clone https://github.com/unnar-sportabler/TimeLog.git ~/sportabler/TimeLog
 bash ~/sportabler/TimeLog/install.sh
 ```
 

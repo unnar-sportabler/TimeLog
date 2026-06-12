@@ -1,7 +1,7 @@
 #!/bin/bash
 # TimeLog installer — automatic Claude Code time tracking + review UI + Tempo submission.
 #
-#   git clone <repo-url> && cd TimeLog && bash install.sh
+#   git clone https://github.com/unnar-sportabler/TimeLog.git && cd TimeLog && bash install.sh
 #
 # What it does (all idempotent, re-run after every git pull):
 #   1. Copies runtime (hooks/CLI/server/UI) to ~/.claude/timelog/app/
